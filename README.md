@@ -15,13 +15,14 @@ Install
 Configuration
 -------------
 
- `RMode config|stat` (default is config)
  `RUidGid user|#uid group|#gid` - when RMode is config, set to this uid and gid
 
  `RMinUidGid user|#uid group|#gid` - when uid/gid is < than min uid/gid set to default uid/gid
+
  `RDefaultUidGid user|#uid group|#gid`
 
  `RGroups group1 group2` - additional groups set via setgroups
+
  `@none` - clear all previous defined groups.
 
  `RDocumentChrRoot` - Set chroot directory and the document root inside
@@ -29,10 +30,9 @@ Configuration
 Example
 -------
 ```
- LoadModule ruid2_module   modules/mod_ruid2.so
+ LoadModule nsjail_module   modules/mod_nsjail.so
  User                     apache
  Group                    apache
- RMode                    stat
  RGroups                  apachetmp
  RDocumentChRoot          /home /example.com/public_html
 
@@ -42,16 +42,10 @@ Example
    RDocumentChRoot /home /example.com/public_html
    ServerName     example.com
    ServerAlias    www.example.com
-   RMode          config		# unnecessary since config is the default
    RUidGid        user1 group1
    RGroups        apachetmp
 
-   <Directory /home/example.com/public_html/dir>
-       RMode stat
-   </Directory>
-
    <Directory /home/example.com/public_html/dir/test>
-       RMode config
        RUidGid user2 group2
        RGroups groups1
    </Directory>
@@ -61,7 +55,6 @@ Example
    </Directory>
 
    <Location /yustadir>
-       RMode config
        RUidGid user4 user4
        RGroups groups4
    </Location>

@@ -60,12 +60,6 @@
 
 #define NSJAIL_MAXGROUPS		8
 
-#define NSJAIL_MODE_CONF		0
-#define NSJAIL_MODE_STAT		1
-#define NSJAIL_MODE_UNDEFINED	2
-
-#define NSJAIL_MODE_STAT_NOT_USED	0
-#define NSJAIL_MODE_STAT_USED	1
 #define NSJAIL_CHROOT_NOT_USED	0
 #define NSJAIL_CHROOT_USED	1
 
@@ -85,7 +79,6 @@
 
 typedef struct
 {
-	int8_t nsjail_mode;
 	uid_t nsjail_uid;
 	gid_t nsjail_gid;
 	gid_t groups[NSJAIL_MAXGROUPS];
@@ -106,8 +99,6 @@ typedef struct
 
 module AP_MODULE_DECLARE_DATA nsjail_module;
 
-
-static int mode_stat_used	= NSJAIL_MODE_STAT_NOT_USED;
 static int chroot_used		= NSJAIL_CHROOT_NOT_USED;
 static int cap_mode		= NSJAIL_CAP_MODE_KEEP;
 
@@ -123,13 +114,6 @@ static void *create_dir_config(apr_pool_t *p, char *d)
 	char *dname = d;
 	nsjail_dir_config_t *dconf = apr_pcalloc (p, sizeof(*dconf));
 
-	if (dname == NULL) {
-		// Server config
-		dconf->nsjail_mode=NSJAIL_MODE_CONF;
-	} else {
-		// Directory config
-		dconf->nsjail_mode=NSJAIL_MODE_UNDEFINED;
-	}
 	dconf->nsjail_uid=UNSET;
 	dconf->nsjail_gid=UNSET;
 	dconf->groupsnr=UNSET;
@@ -144,12 +128,7 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	nsjail_dir_config_t *child = overrides;
 	nsjail_dir_config_t *conf = apr_pcalloc(p, sizeof(nsjail_dir_config_t));
 
-	if (child->nsjail_mode == NSJAIL_MODE_UNDEFINED) {
-		conf->nsjail_mode = parent->nsjail_mode;
-	} else {
-		conf->nsjail_mode = child->nsjail_mode;
-	}
-	if (conf->nsjail_mode == NSJAIL_MODE_STAT) {
+	if (FALSE) {
 		conf->nsjail_uid=UNSET;
 		conf->nsjail_gid=UNSET;
 		conf->groupsnr = (child->groupsnr != NONE) ? UNSET : NONE;
@@ -198,13 +177,6 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 
 	if (err != NULL) {
 		return err;
-	}
-
-	if (strcasecmp(arg,"stat")==0) {
-		dconf->nsjail_mode=NSJAIL_MODE_STAT;
-		mode_stat_used |= NSJAIL_MODE_STAT_USED;
-	} else {
-		dconf->nsjail_mode=NSJAIL_MODE_CONF;
 	}
 
 	return NULL;
@@ -405,7 +377,7 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 	capval[0] = CAP_SETUID;
 	capval[1] = CAP_SETGID;
 	ncap = 2;
-	if (mode_stat_used == NSJAIL_MODE_STAT_USED) {
+	if (FALSE) {
 		capval[ncap++] = CAP_DAC_READ_SEARCH;
 	}
 	if (root_handle != UNSET) {
@@ -504,7 +476,7 @@ static int nsjail_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	if (dconf->nsjail_mode==NSJAIL_MODE_STAT) {
+	if (FALSE) {
 		/* set uid,gid to uid,gid of file
 		 * if file does not exist, finfo.user and finfo.group is set to uid,gid of parent directory
 		 */
@@ -592,7 +564,7 @@ static int nsjail_setup (request_rec *r)
 	cap_t cap;
 	cap_value_t capval[2];
 
-	if (dconf->nsjail_mode==NSJAIL_MODE_STAT) capval[ncap++] = CAP_DAC_READ_SEARCH;
+	if (FALSE) capval[ncap++] = CAP_DAC_READ_SEARCH;
 	if (root_handle != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
 	if (ncap) {
 		cap=cap_get_proc();
@@ -632,7 +604,7 @@ static int nsjail_setup (request_rec *r)
 	/* register suidback function */
 	apr_pool_cleanup_register(r->pool, r, nsjail_suidback, apr_pool_cleanup_null);
 
-	if (dconf->nsjail_mode==NSJAIL_MODE_CONF)
+	if (TRUE)
 	{
 		return nsjail_set_perm(r, __func__);
 	} else {
