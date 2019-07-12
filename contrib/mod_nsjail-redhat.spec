@@ -30,7 +30,7 @@ install -m755 %{name}.so $RPM_BUILD_ROOT%{_libdir}/httpd/modules
 
 # Install the config file
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/httpd/conf.d
-install -m 644 ruid2.conf \
+install -m 644 nsjail.conf \
     $RPM_BUILD_ROOT%{_sysconfdir}/httpd/conf.d/
     
 %clean
