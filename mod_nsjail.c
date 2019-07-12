@@ -1,8 +1,8 @@
 /*
-   mod_ruid2 0.9.8
-   Copyright (C) 2009-2013 Monshouwer Internet Diensten
+   mod_nsjail 0.10.0
+   Copyright (C) 2019 Hax LLC
 
-   Author: Kees Monshouwer
+   Author: Andrew Pietila
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@
      Copyright 2004 by Hideo NAKAMITSU. All rights reserved
    - mod_ruid - http://websupport.sk/~stanojr/projects/mod_ruid/
      Copyright 2004 by Pavel Stano. All rights reserved
+   - mod_ruid2 - https://github.com/mind04/mod-ruid2/
+     Copyright 2009-2013 by Monshouwer Internet Diensten. All rights reserved.
 
    Instalation:
    - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
@@ -50,8 +52,8 @@
 #include <sys/prctl.h>
 #include <sys/capability.h>
 
-#define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.8"
+#define MODULE_NAME		"mod_nsjail"
+#define MODULE_VERSION		"0.10.0"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100

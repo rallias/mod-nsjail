@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
-Name: mod_ruid2
-Version: 0.9.8
+Name: mod_nsjail
+Version: 0.10.0
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -9,7 +9,7 @@ License: Apache Software License version 2
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
 BuildRequires: httpd-devel >= 2.0.40 libcap-devel
 Requires: httpd >= 2.0.40 libcap
-Obsoletes: mod_ruid
+Obsoletes: mod_ruid, mod_ruid2
 
 %description
 With this module, all httpd process run under user's access right, not nobody or apache.
