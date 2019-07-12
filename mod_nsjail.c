@@ -128,24 +128,18 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	nsjail_dir_config_t *child = overrides;
 	nsjail_dir_config_t *conf = apr_pcalloc(p, sizeof(nsjail_dir_config_t));
 
-	if (FALSE) {
-		conf->nsjail_uid=UNSET;
-		conf->nsjail_gid=UNSET;
-		conf->groupsnr = (child->groupsnr != NONE) ? UNSET : NONE;
+	conf->nsjail_uid = (child->nsjail_uid == UNSET) ? parent->nsjail_uid : child->nsjail_uid;
+	conf->nsjail_gid = (child->nsjail_gid == UNSET) ? parent->nsjail_gid : child->nsjail_gid;
+	if (child->groupsnr == NONE) {
+		conf->groupsnr = NONE;
+	} else if (child->groupsnr > 0) {
+		memcpy(conf->groups, child->groups, sizeof(child->groups));
+		conf->groupsnr = child->groupsnr;
+	} else if (parent->groupsnr > 0) {
+		memcpy(conf->groups, parent->groups, sizeof(parent->groups));
+		conf->groupsnr = parent->groupsnr;
 	} else {
-		conf->nsjail_uid = (child->nsjail_uid == UNSET) ? parent->nsjail_uid : child->nsjail_uid;
-		conf->nsjail_gid = (child->nsjail_gid == UNSET) ? parent->nsjail_gid : child->nsjail_gid;
-		if (child->groupsnr == NONE) {
-			conf->groupsnr = NONE;
-		} else if (child->groupsnr > 0) {
-			memcpy(conf->groups, child->groups, sizeof(child->groups));
-			conf->groupsnr = child->groupsnr;
-		} else if (parent->groupsnr > 0) {
-			memcpy(conf->groups, parent->groups, sizeof(parent->groups));
-			conf->groupsnr = parent->groupsnr;
-		} else {
-			conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
-		}
+		conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
 	}
 
 	return conf;
@@ -281,7 +275,6 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 /* configure options in httpd.conf */
 static const command_rec nsjail_cmds[] = {
 
-	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "Set mode to config or stat (default: config)"),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
 	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set additional groups"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
@@ -377,9 +370,6 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 	capval[0] = CAP_SETUID;
 	capval[1] = CAP_SETGID;
 	ncap = 2;
-	if (FALSE) {
-		capval[ncap++] = CAP_DAC_READ_SEARCH;
-	}
 	if (root_handle != UNSET) {
 		capval[ncap++] = CAP_SYS_CHROOT;
 	}
@@ -476,16 +466,9 @@ static int nsjail_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	if (FALSE) {
-		/* set uid,gid to uid,gid of file
-		 * if file does not exist, finfo.user and finfo.group is set to uid,gid of parent directory
-		 */
-		gid=r->finfo.group;
-		uid=r->finfo.user;
-	} else {
-		gid=(dconf->nsjail_gid == UNSET) ? ap_unixd_config.group_id : dconf->nsjail_gid;
-		uid=(dconf->nsjail_uid == UNSET) ? ap_unixd_config.user_id : dconf->nsjail_uid;
-	}
+	gid=(dconf->nsjail_gid == UNSET) ? ap_unixd_config.group_id : dconf->nsjail_gid;
+	uid=(dconf->nsjail_uid == UNSET) ? ap_unixd_config.user_id : dconf->nsjail_uid;
+	
 
 	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
 	if (uid < conf->min_uid) {
@@ -564,7 +547,6 @@ static int nsjail_setup (request_rec *r)
 	cap_t cap;
 	cap_value_t capval[2];
 
-	if (FALSE) capval[ncap++] = CAP_DAC_READ_SEARCH;
 	if (root_handle != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
 	if (ncap) {
 		cap=cap_get_proc();
@@ -604,12 +586,7 @@ static int nsjail_setup (request_rec *r)
 	/* register suidback function */
 	apr_pool_cleanup_register(r->pool, r, nsjail_suidback, apr_pool_cleanup_null);
 
-	if (TRUE)
-	{
-		return nsjail_set_perm(r, __func__);
-	} else {
-		return DECLINED;
-	}
+	return nsjail_set_perm(r, __func__);
 }
 
 
