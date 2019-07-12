@@ -31,16 +31,11 @@
    - https://github.com/mind04/mod-ruid2/issues
 */
 
-#include <ap_release.h>
-
 /* define CORE_PRIVATE for apache < 2.4 */
 #if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER < 4
 #define CORE_PRIVATE
 #endif
 
-#include <apr_strings.h>
-#include <apr_md5.h>
-#include <apr_file_info.h>
 #include <unixd.h>
 #include <http_core.h>
 #include <http_log.h>
@@ -51,24 +46,13 @@
 #include <unistd.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
+#include "nsjail_config.h"
 
 #define MODULE_NAME		"mod_nsjail"
 #define MODULE_VERSION		"0.10.0"
 
-#define NSJAIL_MIN_UID		100
-#define NSJAIL_MIN_GID		100
-
-#define NSJAIL_MAXGROUPS		8
-
-#define NSJAIL_CHROOT_NOT_USED	0
-#define NSJAIL_CHROOT_USED	1
-
 #define NSJAIL_CAP_MODE_DROP	0
 #define NSJAIL_CAP_MODE_KEEP	1
-
-#define NONE			-2
-#define UNSET			-1
-#define SET			1
 
 #define UNUSED(x) (void)(x)
 
@@ -77,29 +61,6 @@
 #define ap_unixd_config unixd_config
 #endif
 
-typedef struct
-{
-	uid_t nsjail_uid;
-	gid_t nsjail_gid;
-	gid_t groups[NSJAIL_MAXGROUPS];
-	int groupsnr;
-} nsjail_dir_config_t;
-
-
-typedef struct
-{
-	uid_t default_uid;
-	gid_t default_gid;
-	uid_t min_uid;
-	gid_t min_gid;
-	const char *chroot_dir;
-	const char *document_root;
-} nsjail_config_t;
-
-
-module AP_MODULE_DECLARE_DATA nsjail_module;
-
-static int chroot_used		= NSJAIL_CHROOT_NOT_USED;
 static int cap_mode		= NSJAIL_CAP_MODE_KEEP;
 
 static int coredump, root_handle;
@@ -107,169 +68,6 @@ static const char *old_root;
 
 static gid_t startup_groups[NSJAIL_MAXGROUPS];
 static int startup_groupsnr;
-
-
-static void *create_dir_config(apr_pool_t *p, char *d)
-{
-	char *dname = d;
-	nsjail_dir_config_t *dconf = apr_pcalloc (p, sizeof(*dconf));
-
-	dconf->nsjail_uid=UNSET;
-	dconf->nsjail_gid=UNSET;
-	dconf->groupsnr=UNSET;
-
-	return dconf;
-}
-
-
-static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
-{
-	nsjail_dir_config_t *parent = base;
-	nsjail_dir_config_t *child = overrides;
-	nsjail_dir_config_t *conf = apr_pcalloc(p, sizeof(nsjail_dir_config_t));
-
-	conf->nsjail_uid = (child->nsjail_uid == UNSET) ? parent->nsjail_uid : child->nsjail_uid;
-	conf->nsjail_gid = (child->nsjail_gid == UNSET) ? parent->nsjail_gid : child->nsjail_gid;
-	if (child->groupsnr == NONE) {
-		conf->groupsnr = NONE;
-	} else if (child->groupsnr > 0) {
-		memcpy(conf->groups, child->groups, sizeof(child->groups));
-		conf->groupsnr = child->groupsnr;
-	} else if (parent->groupsnr > 0) {
-		memcpy(conf->groups, parent->groups, sizeof(parent->groups));
-		conf->groupsnr = parent->groupsnr;
-	} else {
-		conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
-	}
-
-	return conf;
-}
-
-
-static void *create_config (apr_pool_t *p, server_rec *s)
-{
-	UNUSED(s);
-
-	nsjail_config_t *conf = apr_palloc (p, sizeof (*conf));
-
-	conf->default_uid=ap_unixd_config.user_id;
-	conf->default_gid=ap_unixd_config.group_id;
-	conf->min_uid=NSJAIL_MIN_UID;
-	conf->min_gid=NSJAIL_MIN_GID;
-	conf->chroot_dir=NULL;
-	conf->document_root=NULL;
-
-	return conf;
-}
-
-
-/* configure option functions */
-static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
-{
-	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	return NULL;
-}
-
-
-static const char *set_uidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
-{
-	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	dconf->nsjail_uid = ap_uname2id(uid);
-	dconf->nsjail_gid = ap_gname2id(gid);
-
-	return NULL;
-}
-
-
-static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
-{
-	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	if (strcasecmp(arg,"@none") == 0) {
-		dconf->groupsnr=NONE;
-	}
-
-	if (dconf->groupsnr == UNSET) {
-		dconf->groupsnr = 0;
-	}
-	if ((dconf->groupsnr < NSJAIL_MAXGROUPS) && (dconf->groupsnr >= 0)) {
-		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
-	}
-
-	return NULL;
-}
-
-
-static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
-{
-	UNUSED(mconfig);
-
-	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->default_uid = ap_uname2id(uid);
-	conf->default_gid = ap_gname2id(gid);
-
-	return NULL;
-}
-
-
-static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
-{
-	UNUSED(mconfig);
-
-	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->min_uid = ap_uname2id(uid);
-	conf->min_gid = ap_gname2id(gid);
-
-	return NULL;
-}
-
-
-static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char *chroot_dir, const char *document_root)
-{
-	UNUSED(mconfig);
-
-	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->chroot_dir = chroot_dir;
-	conf->document_root = document_root;
-	chroot_used |= NSJAIL_CHROOT_USED;
-
-	return NULL;
-}
 
 
 /* configure options in httpd.conf */
@@ -347,7 +145,7 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 	}
 
 	/* setup chroot jailbreak */
-	if (chroot_used == NSJAIL_CHROOT_USED && cap_mode == NSJAIL_CAP_MODE_KEEP) {
+	if (is_chroot_used() == NSJAIL_CHROOT_USED && cap_mode == NSJAIL_CAP_MODE_KEEP) {
 		if ((root_handle = open("/.", O_RDONLY)) < 0) {
 			root_handle = UNSET;
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
@@ -361,7 +159,7 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 			apr_pool_cleanup_register(p, (void*)((long)root_handle), nsjail_child_exit, apr_pool_cleanup_null);
 		}
 	} else {
-		root_handle = (chroot_used == NSJAIL_CHROOT_USED ? NONE : UNSET);
+		root_handle = (is_chroot_used() == NSJAIL_CHROOT_USED ? NONE : UNSET);
 	}
 
 	/* init cap with all zeros */

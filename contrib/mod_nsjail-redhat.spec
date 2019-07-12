@@ -19,7 +19,7 @@ using Linux's namespace functionality.
 %setup -q
 
 %build
-%{_sbindir}/apxs -l cap -c %{name}.c
+%{_sbindir}/apxs -l cap -c %{name}.c nsjail_config.c
 mv .libs/%{name}.so .
 %{__strip} -g %{name}.so
 
