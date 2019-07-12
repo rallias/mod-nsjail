@@ -1,4 +1,4 @@
-Summary: Run all httpd process under user's access right.
+Summary: Run all httpd process under containers.
 Name: mod_nsjail
 Version: 0.10.0
 Release: 1%{dist}
@@ -12,11 +12,8 @@ Requires: httpd >= 2.0.40 libcap
 Obsoletes: mod_ruid, mod_ruid2
 
 %description
-With this module, all httpd process run under user's access right, not nobody or apache.
-mod_ruid2 is similar to mod_suid2, but has better performance than mod_suid2 because it
-doesn`t need to kill httpd children after one request. It makes use of kernel capabilites
-and after receiving a new request suids again. If you want to run apache modules, i.e.
-WebDAV, PHP, and so on under user's right, this module is useful.
+Apache module to allow for an Apache process to run in a segregated namespaced environment,
+using Linux's namespace functionality.
 
 %prep
 %setup -q
@@ -47,6 +44,9 @@ install -m 644 ruid2.conf \
 
 
 %changelog
+* Thu Jul 11 2019 Andrew Pietila <andrew@hax.technology> 0.10.0-1
+- Changed module name to mod_nsjail
+
 * Fri Mar 22 2013 Kees Monshouwer <km|monshouwer_com> 0.9.8-1
 - Address reported security bug in chroot mode. Thanks to the
   "cPanel Security Team" for the discovery of this bug.

@@ -25,7 +25,7 @@
      Copyright 2009-2013 by Monshouwer Internet Diensten. All rights reserved.
 
    Instalation:
-   - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
+   - /usr/apache/bin/apxs -a -i -l cap -c mod_nsjail.c
 
    Issues:
    - https://github.com/mind04/mod-ruid2/issues
@@ -55,22 +55,22 @@
 #define MODULE_NAME		"mod_nsjail"
 #define MODULE_VERSION		"0.10.0"
 
-#define RUID_MIN_UID		100
-#define RUID_MIN_GID		100
+#define NSJAIL_MIN_UID		100
+#define NSJAIL_MIN_GID		100
 
-#define RUID_MAXGROUPS		8
+#define NSJAIL_MAXGROUPS		8
 
-#define RUID_MODE_CONF		0
-#define RUID_MODE_STAT		1
-#define RUID_MODE_UNDEFINED	2
+#define NSJAIL_MODE_CONF		0
+#define NSJAIL_MODE_STAT		1
+#define NSJAIL_MODE_UNDEFINED	2
 
-#define RUID_MODE_STAT_NOT_USED	0
-#define RUID_MODE_STAT_USED	1
-#define RUID_CHROOT_NOT_USED	0
-#define RUID_CHROOT_USED	1
+#define NSJAIL_MODE_STAT_NOT_USED	0
+#define NSJAIL_MODE_STAT_USED	1
+#define NSJAIL_CHROOT_NOT_USED	0
+#define NSJAIL_CHROOT_USED	1
 
-#define RUID_CAP_MODE_DROP	0
-#define RUID_CAP_MODE_KEEP	1
+#define NSJAIL_CAP_MODE_DROP	0
+#define NSJAIL_CAP_MODE_KEEP	1
 
 #define NONE			-2
 #define UNSET			-1
@@ -85,12 +85,12 @@
 
 typedef struct
 {
-	int8_t ruid_mode;
-	uid_t ruid_uid;
-	gid_t ruid_gid;
-	gid_t groups[RUID_MAXGROUPS];
+	int8_t nsjail_mode;
+	uid_t nsjail_uid;
+	gid_t nsjail_gid;
+	gid_t groups[NSJAIL_MAXGROUPS];
 	int groupsnr;
-} ruid_dir_config_t;
+} nsjail_dir_config_t;
 
 
 typedef struct
@@ -101,37 +101,37 @@ typedef struct
 	gid_t min_gid;
 	const char *chroot_dir;
 	const char *document_root;
-} ruid_config_t;
+} nsjail_config_t;
 
 
-module AP_MODULE_DECLARE_DATA ruid2_module;
+module AP_MODULE_DECLARE_DATA nsjail_module;
 
 
-static int mode_stat_used	= RUID_MODE_STAT_NOT_USED;
-static int chroot_used		= RUID_CHROOT_NOT_USED;
-static int cap_mode		= RUID_CAP_MODE_KEEP;
+static int mode_stat_used	= NSJAIL_MODE_STAT_NOT_USED;
+static int chroot_used		= NSJAIL_CHROOT_NOT_USED;
+static int cap_mode		= NSJAIL_CAP_MODE_KEEP;
 
 static int coredump, root_handle;
 static const char *old_root;
 
-static gid_t startup_groups[RUID_MAXGROUPS];
+static gid_t startup_groups[NSJAIL_MAXGROUPS];
 static int startup_groupsnr;
 
 
 static void *create_dir_config(apr_pool_t *p, char *d)
 {
 	char *dname = d;
-	ruid_dir_config_t *dconf = apr_pcalloc (p, sizeof(*dconf));
+	nsjail_dir_config_t *dconf = apr_pcalloc (p, sizeof(*dconf));
 
 	if (dname == NULL) {
 		// Server config
-		dconf->ruid_mode=RUID_MODE_CONF;
+		dconf->nsjail_mode=NSJAIL_MODE_CONF;
 	} else {
 		// Directory config
-		dconf->ruid_mode=RUID_MODE_UNDEFINED;
+		dconf->nsjail_mode=NSJAIL_MODE_UNDEFINED;
 	}
-	dconf->ruid_uid=UNSET;
-	dconf->ruid_gid=UNSET;
+	dconf->nsjail_uid=UNSET;
+	dconf->nsjail_gid=UNSET;
 	dconf->groupsnr=UNSET;
 
 	return dconf;
@@ -140,22 +140,22 @@ static void *create_dir_config(apr_pool_t *p, char *d)
 
 static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 {
-	ruid_dir_config_t *parent = base;
-	ruid_dir_config_t *child = overrides;
-	ruid_dir_config_t *conf = apr_pcalloc(p, sizeof(ruid_dir_config_t));
+	nsjail_dir_config_t *parent = base;
+	nsjail_dir_config_t *child = overrides;
+	nsjail_dir_config_t *conf = apr_pcalloc(p, sizeof(nsjail_dir_config_t));
 
-	if (child->ruid_mode == RUID_MODE_UNDEFINED) {
-		conf->ruid_mode = parent->ruid_mode;
+	if (child->nsjail_mode == NSJAIL_MODE_UNDEFINED) {
+		conf->nsjail_mode = parent->nsjail_mode;
 	} else {
-		conf->ruid_mode = child->ruid_mode;
+		conf->nsjail_mode = child->nsjail_mode;
 	}
-	if (conf->ruid_mode == RUID_MODE_STAT) {
-		conf->ruid_uid=UNSET;
-		conf->ruid_gid=UNSET;
+	if (conf->nsjail_mode == NSJAIL_MODE_STAT) {
+		conf->nsjail_uid=UNSET;
+		conf->nsjail_gid=UNSET;
 		conf->groupsnr = (child->groupsnr != NONE) ? UNSET : NONE;
 	} else {
-		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
-		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
+		conf->nsjail_uid = (child->nsjail_uid == UNSET) ? parent->nsjail_uid : child->nsjail_uid;
+		conf->nsjail_gid = (child->nsjail_gid == UNSET) ? parent->nsjail_gid : child->nsjail_gid;
 		if (child->groupsnr == NONE) {
 			conf->groupsnr = NONE;
 		} else if (child->groupsnr > 0) {
@@ -177,12 +177,12 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 {
 	UNUSED(s);
 
-	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
+	nsjail_config_t *conf = apr_palloc (p, sizeof (*conf));
 
 	conf->default_uid=ap_unixd_config.user_id;
 	conf->default_gid=ap_unixd_config.group_id;
-	conf->min_uid=RUID_MIN_UID;
-	conf->min_gid=RUID_MIN_GID;
+	conf->min_uid=NSJAIL_MIN_UID;
+	conf->min_gid=NSJAIL_MIN_GID;
 	conf->chroot_dir=NULL;
 	conf->document_root=NULL;
 
@@ -193,7 +193,7 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 /* configure option functions */
 static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 {
-	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
+	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -201,10 +201,10 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 	}
 
 	if (strcasecmp(arg,"stat")==0) {
-		dconf->ruid_mode=RUID_MODE_STAT;
-		mode_stat_used |= RUID_MODE_STAT_USED;
+		dconf->nsjail_mode=NSJAIL_MODE_STAT;
+		mode_stat_used |= NSJAIL_MODE_STAT_USED;
 	} else {
-		dconf->ruid_mode=RUID_MODE_CONF;
+		dconf->nsjail_mode=NSJAIL_MODE_CONF;
 	}
 
 	return NULL;
@@ -213,15 +213,15 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 
 static const char *set_uidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
-	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
+	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
 
 	if (err != NULL) {
 		return err;
 	}
 
-	dconf->ruid_uid = ap_uname2id(uid);
-	dconf->ruid_gid = ap_gname2id(gid);
+	dconf->nsjail_uid = ap_uname2id(uid);
+	dconf->nsjail_gid = ap_gname2id(gid);
 
 	return NULL;
 }
@@ -229,7 +229,7 @@ static const char *set_uidgid (cmd_parms *cmd, void *mconfig, const char *uid, c
 
 static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 {
-	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
+	nsjail_dir_config_t *dconf = (nsjail_dir_config_t *) mconfig;
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -243,7 +243,7 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 	if (dconf->groupsnr == UNSET) {
 		dconf->groupsnr = 0;
 	}
-	if ((dconf->groupsnr < RUID_MAXGROUPS) && (dconf->groupsnr >= 0)) {
+	if ((dconf->groupsnr < NSJAIL_MAXGROUPS) && (dconf->groupsnr >= 0)) {
 		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
 	}
 
@@ -255,7 +255,7 @@ static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid
 {
 	UNUSED(mconfig);
 
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -273,7 +273,7 @@ static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid
 {
 	UNUSED(mconfig);
 
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -291,7 +291,7 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 {
 	UNUSED(mconfig);
 
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config (cmd->server->module_config, &nsjail_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -300,14 +300,14 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 
 	conf->chroot_dir = chroot_dir;
 	conf->document_root = document_root;
-	chroot_used |= RUID_CHROOT_USED;
+	chroot_used |= NSJAIL_CHROOT_USED;
 
 	return NULL;
 }
 
 
 /* configure options in httpd.conf */
-static const command_rec ruid_cmds[] = {
+static const command_rec nsjail_cmds[] = {
 
 	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "Set mode to config or stat (default: config)"),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
@@ -320,14 +320,14 @@ static const command_rec ruid_cmds[] = {
 
 
 /* run in post config hook ( we are parent process and we are uid 0) */
-static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
+static int nsjail_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
 {
 	UNUSED(p);
 	UNUSED(plog);
 	UNUSED(ptemp);
 
 	void *data;
-	const char *userdata_key = "ruid2_init";
+	const char *userdata_key = "nsjail_init";
 
 	/* keep capabilities after setuid */
 	prctl(PR_SET_KEEPCAPS,1);
@@ -344,7 +344,7 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 		/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
 		if (ap_max_requests_per_child == 1) {
 			ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME " is in drop capability mode");
-			cap_mode = RUID_CAP_MODE_DROP;
+			cap_mode = NSJAIL_CAP_MODE_DROP;
 		}
 	}
 
@@ -353,7 +353,7 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 
 
 /* child cleanup function */
-static apr_status_t ruid_child_exit(void *data)
+static apr_status_t nsjail_child_exit(void *data)
 {
 	int fd = (int)((long)data);
 
@@ -367,7 +367,7 @@ static apr_status_t ruid_child_exit(void *data)
 
 
 /* run after child init we are uid User and gid Group */
-static void ruid_child_init (apr_pool_t *p, server_rec *s)
+static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 {
 	UNUSED(s);
 
@@ -376,13 +376,13 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	cap_value_t capval[4];
 
 	/* detect default supplementary group IDs */
-	if ((startup_groupsnr = getgroups(RUID_MAXGROUPS, startup_groups)) == -1) {
+	if ((startup_groupsnr = getgroups(NSJAIL_MAXGROUPS, startup_groups)) == -1) {
 		startup_groupsnr = 0;
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s ERROR getgroups() failed on child init, ignoring supplementary group IDs", MODULE_NAME);
 	}
 
 	/* setup chroot jailbreak */
-	if (chroot_used == RUID_CHROOT_USED && cap_mode == RUID_CAP_MODE_KEEP) {
+	if (chroot_used == NSJAIL_CHROOT_USED && cap_mode == NSJAIL_CAP_MODE_KEEP) {
 		if ((root_handle = open("/.", O_RDONLY)) < 0) {
 			root_handle = UNSET;
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
@@ -393,10 +393,10 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 			root_handle = UNSET;
 		} else {
 			/* register cleanup function */
-			apr_pool_cleanup_register(p, (void*)((long)root_handle), ruid_child_exit, apr_pool_cleanup_null);
+			apr_pool_cleanup_register(p, (void*)((long)root_handle), nsjail_child_exit, apr_pool_cleanup_null);
 		}
 	} else {
-		root_handle = (chroot_used == RUID_CHROOT_USED ? NONE : UNSET);
+		root_handle = (chroot_used == NSJAIL_CHROOT_USED ? NONE : UNSET);
 	}
 
 	/* init cap with all zeros */
@@ -405,7 +405,7 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	capval[0] = CAP_SETUID;
 	capval[1] = CAP_SETGID;
 	ncap = 2;
-	if (mode_stat_used == RUID_MODE_STAT_USED) {
+	if (mode_stat_used == NSJAIL_MODE_STAT_USED) {
 		capval[ncap++] = CAP_DAC_READ_SEARCH;
 	}
 	if (root_handle != UNSET) {
@@ -423,17 +423,17 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 
 
 /* run during request cleanup */
-static apr_status_t ruid_suidback (void *data)
+static apr_status_t nsjail_suidback (void *data)
 {
 	request_rec *r = data;
 
-	ruid_config_t *conf = ap_get_module_config (r->server->module_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config (r->server->module_config, &nsjail_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
 
 	cap_t cap;
 	cap_value_t capval[3];
 
-	if (cap_mode == RUID_CAP_MODE_KEEP) {
+	if (cap_mode == NSJAIL_CAP_MODE_KEEP) {
 
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
@@ -481,15 +481,15 @@ static apr_status_t ruid_suidback (void *data)
 }
 
 
-static int ruid_set_perm (request_rec *r, const char *from_func)
+static int nsjail_set_perm (request_rec *r, const char *from_func)
 {
-	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
-	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config(r->server->module_config, &nsjail_module);
+	nsjail_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &nsjail_module);
 
 	int retval = DECLINED;
 	gid_t gid;
 	uid_t uid;
-	gid_t groups[RUID_MAXGROUPS];
+	gid_t groups[NSJAIL_MAXGROUPS];
 	int groupsnr;
 
 	cap_t cap;
@@ -504,15 +504,15 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	if (dconf->ruid_mode==RUID_MODE_STAT) {
+	if (dconf->nsjail_mode==NSJAIL_MODE_STAT) {
 		/* set uid,gid to uid,gid of file
 		 * if file does not exist, finfo.user and finfo.group is set to uid,gid of parent directory
 		 */
 		gid=r->finfo.group;
 		uid=r->finfo.user;
 	} else {
-		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
-		uid=(dconf->ruid_uid == UNSET) ? ap_unixd_config.user_id : dconf->ruid_uid;
+		gid=(dconf->nsjail_gid == UNSET) ? ap_unixd_config.group_id : dconf->nsjail_gid;
+		uid=(dconf->nsjail_uid == UNSET) ? ap_unixd_config.user_id : dconf->nsjail_uid;
 	}
 
 	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
@@ -543,12 +543,12 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	/* final set[ug]id */
 	if (setgid(gid) != 0)
 	{
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->ruid_gid, getgid(), getuid());
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_gid, getgid(), getuid());
 		retval = HTTP_FORBIDDEN;
 	} else {
 		if (setuid(uid) != 0)
 		{
-			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->ruid_uid, getuid());
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_uid, getuid());
 			retval = HTTP_FORBIDDEN;
 		}
 	}
@@ -576,23 +576,23 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 
 
 /* run in post_read_request hook */
-static int ruid_setup (request_rec *r)
+static int nsjail_setup (request_rec *r)
 {
-	/* We decline when we are in a subrequest. The ruid_setup function was
+	/* We decline when we are in a subrequest. The nsjail_setup function was
 	 * already executed in the main request. */
 	if (!ap_is_initial_req(r)) {
 		return DECLINED;
 	}
 
-	ruid_config_t *conf = ap_get_module_config (r->server->module_config,  &ruid2_module);
-	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
+	nsjail_config_t *conf = ap_get_module_config (r->server->module_config,  &nsjail_module);
+	nsjail_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &nsjail_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
 
 	int ncap=0;
 	cap_t cap;
 	cap_value_t capval[2];
 
-	if (dconf->ruid_mode==RUID_MODE_STAT) capval[ncap++] = CAP_DAC_READ_SEARCH;
+	if (dconf->nsjail_mode==NSJAIL_MODE_STAT) capval[ncap++] = CAP_DAC_READ_SEARCH;
 	if (root_handle != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
 	if (ncap) {
 		cap=cap_get_proc();
@@ -630,11 +630,11 @@ static int ruid_setup (request_rec *r)
 	}
 
 	/* register suidback function */
-	apr_pool_cleanup_register(r->pool, r, ruid_suidback, apr_pool_cleanup_null);
+	apr_pool_cleanup_register(r->pool, r, nsjail_suidback, apr_pool_cleanup_null);
 
-	if (dconf->ruid_mode==RUID_MODE_CONF)
+	if (dconf->nsjail_mode==NSJAIL_MODE_CONF)
 	{
-		return ruid_set_perm(r, __func__);
+		return nsjail_set_perm(r, __func__);
 	} else {
 		return DECLINED;
 	}
@@ -642,20 +642,20 @@ static int ruid_setup (request_rec *r)
 
 
 /* run in map_to_storage hook */
-static int ruid_uiiii (request_rec *r)
+static int nsjail_uiiii (request_rec *r)
 {
 	if (!ap_is_initial_req(r)) {
 		return DECLINED;
 	}
 
-	int retval = ruid_set_perm(r, __func__);
+	int retval = nsjail_set_perm(r, __func__);
 
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
 	/* clear capabilities from permitted set (permanent) */
-	if (cap_mode == RUID_CAP_MODE_DROP) {
+	if (cap_mode == NSJAIL_CAP_MODE_DROP) {
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
 		capval[1]=CAP_SETGID;
@@ -679,19 +679,19 @@ static void register_hooks (apr_pool_t *p)
 {
 	UNUSED(p);
 
-	ap_hook_post_config (ruid_init, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_child_init (ruid_child_init, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_post_read_request(ruid_setup, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_header_parser(ruid_uiiii, NULL, NULL, APR_HOOK_FIRST);
+	ap_hook_post_config (nsjail_init, NULL, NULL, APR_HOOK_MIDDLE);
+	ap_hook_child_init (nsjail_child_init, NULL, NULL, APR_HOOK_MIDDLE);
+	ap_hook_post_read_request(nsjail_setup, NULL, NULL, APR_HOOK_MIDDLE);
+	ap_hook_header_parser(nsjail_uiiii, NULL, NULL, APR_HOOK_FIRST);
 }
 
 
-module AP_MODULE_DECLARE_DATA ruid2_module = {
+module AP_MODULE_DECLARE_DATA nsjail_module = {
 	STANDARD20_MODULE_STUFF,
 	create_dir_config,		/* dir config creater */
 	merge_dir_config,		/* dir merger --- default is to override */
 	create_config,			/* server config */
 	NULL,				/* merge server config */
-	ruid_cmds,			/* command apr_table_t */
+	nsjail_cmds,			/* command apr_table_t */
 	register_hooks			/* register hooks */
 };
