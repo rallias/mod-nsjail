@@ -26,6 +26,7 @@ module AP_MODULE_DECLARE_DATA nsjail_module;
 
 typedef struct
 {
+    int enable_setuidgid;
     uid_t nsjail_uid;
     gid_t nsjail_gid;
     gid_t groups[NSJAIL_MAXGROUPS];
@@ -45,6 +46,7 @@ typedef struct
 static void *create_dir_config(apr_pool_t*, char*);
 static void *merge_dir_config(apr_pool_t*, void*, void*);
 static void *create_config(apr_pool_t*, server_rec*);
+static const char *set_enablesetuidgid(cmd_parms*, void*, int);
 static const char *set_uidgid(cmd_parms*, void*, const char*, const char*);
 static const char *set_groups(cmd_parms*, void*, const char*);
 static const char *set_defuidgid(cmd_parms*, void*, const char*, const char*);

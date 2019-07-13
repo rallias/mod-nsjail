@@ -72,7 +72,7 @@ static int startup_groupsnr;
 
 /* configure options in httpd.conf */
 static const command_rec nsjail_cmds[] = {
-
+	AP_INIT_FLAG("NsJailEnableSetUidGid", set_enablesetuidgid, NULL, RSRC_CONF | ACCESS_CONF, "Define whether to enable setting UID/GID in location."),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
 	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set additional groups"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
@@ -191,74 +191,79 @@ static int nsjail_set_perm (request_rec *r, const char *from_func)
 	cap_t cap;
 	cap_value_t capval[3];
 
-	cap=cap_get_proc();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed before setuid", MODULE_NAME, from_func, __func__);
-	}
-	cap_free(cap);
+	/* TODO: De-magic-number this. NSJAIL_SETUIDGID_DISABLED/NSJAIL_SETUIDGID_ENABLED. */
+	if ( dconf->enable_setuidgid == 1 ) {
 
-	gid=(dconf->nsjail_gid == UNSET) ? ap_unixd_config.group_id : dconf->nsjail_gid;
-	uid=(dconf->nsjail_uid == UNSET) ? ap_unixd_config.user_id : dconf->nsjail_uid;
-	
+		/* Ensure we have the capabilities CAP_SETUID and CAP_SETGID, and that they are effective. */
+		cap=cap_get_proc();
+		capval[0]=CAP_SETUID;
+		capval[1]=CAP_SETGID;
+		cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed before setuid", MODULE_NAME, from_func, __func__);
+		}
+		cap_free(cap);
 
-	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
-	if (uid < conf->min_uid) {
-		uid=conf->default_uid;
-	}
-	if (gid < conf->min_gid) {
-		gid=conf->default_gid;
-	}
+		gid=(dconf->nsjail_gid == UNSET) ? ap_unixd_config.group_id : dconf->nsjail_gid;
+		uid=(dconf->nsjail_uid == UNSET) ? ap_unixd_config.user_id : dconf->nsjail_uid;
+		
 
-	/* set supplementary groups */
-	if ((dconf->groupsnr == UNSET) && (startup_groupsnr > 0)) {
-		memcpy(groups, startup_groups, sizeof(groups));
-		groupsnr = startup_groupsnr;
-	} else if (dconf->groupsnr > 0) {
-		for (groupsnr = 0; groupsnr < dconf->groupsnr; groupsnr++) {
-			if (dconf->groups[groupsnr] >= conf->min_gid) {
-				groups[groupsnr] = dconf->groups[groupsnr];
-			} else {
-				groups[groupsnr] = conf->default_gid;
+		/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
+		if (uid < conf->min_uid) {
+			uid=conf->default_uid;
+		}
+		if (gid < conf->min_gid) {
+			gid=conf->default_gid;
+		}
+
+		/* set supplementary groups */
+		if ((dconf->groupsnr == UNSET) && (startup_groupsnr > 0)) {
+			memcpy(groups, startup_groups, sizeof(groups));
+			groupsnr = startup_groupsnr;
+		} else if (dconf->groupsnr > 0) {
+			for (groupsnr = 0; groupsnr < dconf->groupsnr; groupsnr++) {
+				if (dconf->groups[groupsnr] >= conf->min_gid) {
+					groups[groupsnr] = dconf->groups[groupsnr];
+				} else {
+					groups[groupsnr] = conf->default_gid;
+				}
+			}
+		} else {
+			groupsnr = 0;
+		}
+		setgroups(groupsnr, groups);
+
+		/* final set[ug]id */
+		if (setgid(gid) != 0)
+		{
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_gid, getgid(), getuid());
+			retval = HTTP_FORBIDDEN;
+		} else {
+			if (setuid(uid) != 0)
+			{
+				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_uid, getuid());
+				retval = HTTP_FORBIDDEN;
 			}
 		}
-	} else {
-		groupsnr = 0;
-	}
-	setgroups(groupsnr, groups);
 
-	/* final set[ug]id */
-	if (setgid(gid) != 0)
-	{
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_gid, getgid(), getuid());
-		retval = HTTP_FORBIDDEN;
-	} else {
-		if (setuid(uid) != 0)
-		{
-			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->nsjail_uid, getuid());
+		/* set httpd process dumpable after setuid */
+		if (coredump) {
+			prctl(PR_SET_DUMPABLE,1);
+		}
+
+		/* clear capabilties from effective set */
+		cap=cap_get_proc();
+		capval[0]=CAP_SETUID;
+		capval[1]=CAP_SETGID;
+		capval[2]=CAP_DAC_READ_SEARCH;
+		cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
+
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed after setuid", MODULE_NAME, from_func, __func__);
 			retval = HTTP_FORBIDDEN;
 		}
+		cap_free(cap);
 	}
-
-	/* set httpd process dumpable after setuid */
-	if (coredump) {
-		prctl(PR_SET_DUMPABLE,1);
-	}
-
-	/* clear capabilties from effective set */
-	cap=cap_get_proc();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	capval[2]=CAP_DAC_READ_SEARCH;
-	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
-
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed after setuid", MODULE_NAME, from_func, __func__);
-		retval = HTTP_FORBIDDEN;
-	}
-	cap_free(cap);
 
 	return retval;
 }

@@ -15,6 +15,8 @@ Install
 Configuration
 -------------
 
+ `NsJailEnableSetUidGid <On|Off>` - Enable or disable setting UID/GID for location.
+ 
  `RUidGid user|#uid group|#gid` - when RMode is config, set to this uid and gid
 
  `RMinUidGid user|#uid group|#gid` - when uid/gid is < than min uid/gid set to default uid/gid

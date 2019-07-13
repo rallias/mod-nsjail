@@ -7,6 +7,8 @@ static void *create_dir_config(apr_pool_t * p, char *d)
     char *dname = d;
     nsjail_dir_config_t *dconf = apr_pcalloc(p, sizeof(*dconf));
 
+    /* TODO: De-magic-number this. NSJAIL_SETUIDGID_DISABLED/NSJAIL_SETUIDGID_ENABLED. */
+    dconf->enable_setuidgid = 1;
     dconf->nsjail_uid = UNSET;
     dconf->nsjail_gid = UNSET;
     dconf->groupsnr = UNSET;
@@ -190,6 +192,23 @@ static const char *set_documentchroot(cmd_parms *cmd, void *mconfig, const char 
     return NULL;
 }
 
+/*
+ * Configuration option.
+ * NsJailEnableSetUidGid <On|Off>
+ * Enable or disable setting UID/GID for location.
+ */
+static const char *set_enablesetuidgid(cmd_parms *cmd, void *mconfig, int value) {
+    nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+    
+    if (err != NULL)
+    {
+        return err;
+    }
+
+    dconf->enable_setuidgid = value;
+    return NULL;
+}
 
 static int is_chroot_used() {
     return chroot_used;
