@@ -104,9 +104,9 @@ static int nsjail_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, serv
 	} else {
 		ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME "/" MODULE_VERSION " enabled");
 
-		/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
+		/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
 		if (ap_max_requests_per_child == 1) {
-			ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME " is in drop capability mode");
+			ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME " enabled.");
 			cap_mode = NSJAIL_CAP_MODE_DROP;
 		}
 	}
@@ -132,6 +132,11 @@ static apr_status_t nsjail_child_exit(void *data)
 /* run after child init we are uid User and gid Group */
 static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 {
+	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
+	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+		return;
+	}
+	
 	UNUSED(s);
 
 	int ncap;
@@ -145,22 +150,7 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 	}
 
 	/* setup chroot jailbreak */
-	if (is_chroot_used() == NSJAIL_CHROOT_USED && cap_mode == NSJAIL_CAP_MODE_KEEP) {
-		if ((root_handle = open("/.", O_RDONLY)) < 0) {
-			root_handle = UNSET;
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
-		} else if (fcntl(root_handle, F_SETFD, FD_CLOEXEC) < 0) {
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR unable to set close-on-exec flag on root file descriptor (%s)", MODULE_NAME, strerror(errno));
-			if (close(root_handle) < 0)
-				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR closing root file descriptor (%d) failed", MODULE_NAME, root_handle);
-			root_handle = UNSET;
-		} else {
-			/* register cleanup function */
-			apr_pool_cleanup_register(p, (void*)((long)root_handle), nsjail_child_exit, apr_pool_cleanup_null);
-		}
-	} else {
-		root_handle = (is_chroot_used() == NSJAIL_CHROOT_USED ? NONE : UNSET);
-	}
+	root_handle = (is_chroot_used() == NSJAIL_CHROOT_USED ? NONE : UNSET);
 
 	/* init cap with all zeros */
 	cap = cap_init();
@@ -182,67 +172,13 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 }
 
 
-/* run during request cleanup */
-static apr_status_t nsjail_suidback (void *data)
-{
-	request_rec *r = data;
-
-	nsjail_config_t *conf = ap_get_module_config (r->server->module_config, &nsjail_module);
-	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
-
-	cap_t cap;
-	cap_value_t capval[3];
-
-	if (cap_mode == NSJAIL_CAP_MODE_KEEP) {
-
-		cap=cap_get_proc();
-		capval[0]=CAP_SETUID;
-		capval[1]=CAP_SETGID;
-		capval[2]=CAP_SYS_CHROOT;
-		cap_set_flag(cap, CAP_EFFECTIVE, (conf->chroot_dir ? 3 : 2), capval, CAP_SET);
-		if (cap_set_proc(cap)!=0) {
-			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed before setuid", MODULE_NAME, __func__);
-		}
-		cap_free(cap);
-
-		setgroups(startup_groupsnr, startup_groups);
-		setgid(ap_unixd_config.group_id);
-		setuid(ap_unixd_config.user_id);
-
-		/* set httpd process dumpable after setuid */
-		if (coredump) {
-			prctl(PR_SET_DUMPABLE,1);
-		}
-
-		/* jail break */
-		if (conf->chroot_dir) {
-			if (fchdir(root_handle) < 0) {
-				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s failed to fchdir to root dir (%d) (%s)", MODULE_NAME, root_handle, strerror(errno));
-			} else {
-				if (chroot(".") != 0) {
-					ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s jail break failed", MODULE_NAME);
-				}
-			}
-			core->ap_document_root = old_root;
-		}
-
-		cap=cap_get_proc();
-		capval[0]=CAP_SETUID;
-		capval[1]=CAP_SETGID;
-		capval[2]=CAP_SYS_CHROOT;
-		cap_set_flag(cap, CAP_EFFECTIVE, 3, capval, CAP_CLEAR);
-		if (cap_set_proc(cap)!=0) {
-			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed after setuid", MODULE_NAME, __func__);
-		}
-		cap_free(cap);
-	}
-
-	return DECLINED;
-}
-
-
 static int nsjail_set_perm (request_rec *r, const char *from_func)
 {
+	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
+	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+		return DECLINED;
+	}
+
 	nsjail_config_t *conf = ap_get_module_config(r->server->module_config, &nsjail_module);
 	nsjail_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &nsjail_module);
 
@@ -337,6 +273,11 @@ static int nsjail_setup (request_rec *r)
 		return DECLINED;
 	}
 
+	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
+	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+		return DECLINED;
+	}
+
 	nsjail_config_t *conf = ap_get_module_config (r->server->module_config,  &nsjail_module);
 	nsjail_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &nsjail_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
@@ -380,9 +321,6 @@ static int nsjail_setup (request_rec *r)
 		}
 		cap_free(cap);
 	}
-
-	/* register suidback function */
-	apr_pool_cleanup_register(r->pool, r, nsjail_suidback, apr_pool_cleanup_null);
 
 	return nsjail_set_perm(r, __func__);
 }
