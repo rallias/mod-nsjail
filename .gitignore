@@ -4,3 +4,7 @@
 *.o
 *.slo
 .vscode/*
+.project
+.cproject
+.settings
+Debug/*

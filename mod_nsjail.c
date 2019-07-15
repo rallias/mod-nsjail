@@ -51,8 +51,8 @@
 #define MODULE_NAME		"mod_nsjail"
 #define MODULE_VERSION		"0.10.0"
 
-#define NSJAIL_CAP_MODE_DROP	0
-#define NSJAIL_CAP_MODE_KEEP	1
+#define NSJAIL_ENABLED	0
+#define NSJAIL_DISABLED	1
 
 #define UNUSED(x) (void)(x)
 
@@ -61,7 +61,8 @@
 #define ap_unixd_config unixd_config
 #endif
 
-static int cap_mode		= NSJAIL_CAP_MODE_KEEP;
+/* TODO: Rename to disabled. */
+static int disabled		= NSJAIL_DISABLED;
 
 static int coredump, root_handle;
 static const char *old_root;
@@ -78,6 +79,10 @@ static const command_rec nsjail_cmds[] = {
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDocumentChRoot", set_documentchroot, NULL, RSRC_CONF, "Set chroot directory and the document root inside"),
+	AP_INIT_FLAG("NsJailEnableUtsNamespace", set_enableutsnamespace, NULL, RSRC_CONF | ACCESS_CONF, "Determine whether ot enable UTS namespacing."),
+	AP_INIT_TAKE1("NsJailUtsHostname", set_utshostname, NULL, RSRC_CONF | ACCESS_CONF, "Set hostname within UTS namespace."),
+	AP_INIT_TAKE1("NsJailUtsDomainName", set_utsdomainname, NULL, RSRC_CONF | ACCESS_CONF, "Set domain name within UTS namespace."),
+	AP_INIT_TAKE1("NsJailUtsCachePath", set_utscachepath, NULL, RSRC_CONF | ACCESS_CONF, "Set location to bind UTS namespace to."),
 	{NULL, {NULL}, NULL, 0, NO_ARGS, NULL}
 };
 
@@ -107,7 +112,7 @@ static int nsjail_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, serv
 		/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
 		if (ap_max_requests_per_child == 1) {
 			ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME " enabled.");
-			cap_mode = NSJAIL_CAP_MODE_DROP;
+			disabled = NSJAIL_ENABLED;
 		}
 	}
 
@@ -115,25 +120,11 @@ static int nsjail_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, serv
 }
 
 
-/* child cleanup function */
-static apr_status_t nsjail_child_exit(void *data)
-{
-	int fd = (int)((long)data);
-
-	if (close(fd) < 0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR closing root file descriptor (%d) failed", MODULE_NAME, fd);
-		return APR_EGENERAL;
-	}
-
-	return APR_SUCCESS;
-}
-
-
 /* run after child init we are uid User and gid Group */
 static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 {
 	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
-	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+	if ( disabled == NSJAIL_DISABLED ) {
 		return;
 	}
 	
@@ -175,7 +166,7 @@ static void nsjail_child_init (apr_pool_t *p, server_rec *s)
 static int nsjail_set_perm (request_rec *r, const char *from_func)
 {
 	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
-	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+	if ( disabled == NSJAIL_DISABLED ) {
 		return DECLINED;
 	}
 
@@ -279,7 +270,7 @@ static int nsjail_setup (request_rec *r)
 	}
 
 	/* MaxRequestsPerChild MUST be 1 to enable mod_nsjail's functionality. */
-	if ( cap_mode == NSJAIL_CAP_MODE_KEEP ) {
+	if ( disabled == NSJAIL_DISABLED ) {
 		return DECLINED;
 	}
 
@@ -345,7 +336,7 @@ static int nsjail_uiiii (request_rec *r)
 	cap_value_t capval[4];
 
 	/* clear capabilities from permitted set (permanent) */
-	if (cap_mode == NSJAIL_CAP_MODE_DROP) {
+	if (disabled == NSJAIL_ENABLED) {
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
 		capval[1]=CAP_SETGID;

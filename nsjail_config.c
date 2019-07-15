@@ -2,7 +2,7 @@
 
 int chroot_used = NSJAIL_CHROOT_NOT_USED;
 
-static void *create_dir_config(apr_pool_t * p, char *d)
+void *create_dir_config(apr_pool_t * p, char *d)
 {
     char *dname = d;
     nsjail_dir_config_t *dconf = apr_pcalloc(p, sizeof(*dconf));
@@ -16,7 +16,7 @@ static void *create_dir_config(apr_pool_t * p, char *d)
     return dconf;
 }
 
-static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
+void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 {
     nsjail_dir_config_t *parent = base;
     nsjail_dir_config_t *child = overrides;
@@ -47,7 +47,7 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 }
 
 
-static void *create_config(apr_pool_t *p, server_rec *s)
+void *create_config(apr_pool_t *p, server_rec *s)
 {
     UNUSED(s);
 
@@ -70,7 +70,7 @@ static void *create_config(apr_pool_t *p, server_rec *s)
  * uid: Username.
  * gid: Group name.
  */
-static const char *set_uidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
+const char *set_uidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
     nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
     const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
@@ -92,7 +92,7 @@ static const char *set_uidgid(cmd_parms *cmd, void *mconfig, const char *uid, co
  * RGroups <gid>
  * gid: Group name.
  */
-static const char *set_groups(cmd_parms *cmd, void *mconfig, const char *arg)
+const char *set_groups(cmd_parms *cmd, void *mconfig, const char *arg)
 {
     nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
     const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
@@ -125,7 +125,7 @@ static const char *set_groups(cmd_parms *cmd, void *mconfig, const char *arg)
  * uid: Username.
  * gid: Group name.
  */
-static const char *set_defuidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
+const char *set_defuidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
     UNUSED(mconfig);
 
@@ -149,7 +149,7 @@ static const char *set_defuidgid(cmd_parms *cmd, void *mconfig, const char *uid,
  * uid: Username.
  * gid: Group name.
  */
-static const char *set_minuidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
+const char *set_minuidgid(cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
     UNUSED(mconfig);
 
@@ -173,7 +173,7 @@ static const char *set_minuidgid(cmd_parms *cmd, void *mconfig, const char *uid,
  * basedir: Base directory to chroot to.
  * docroot: Document root within chroot.
  */
-static const char *set_documentchroot(cmd_parms *cmd, void *mconfig, const char *chroot_dir, const char *document_root)
+const char *set_documentchroot(cmd_parms *cmd, void *mconfig, const char *chroot_dir, const char *document_root)
 {
     UNUSED(mconfig);
 
@@ -197,7 +197,7 @@ static const char *set_documentchroot(cmd_parms *cmd, void *mconfig, const char 
  * NsJailEnableSetUidGid <On|Off>
  * Enable or disable setting UID/GID for location.
  */
-static const char *set_enablesetuidgid(cmd_parms *cmd, void *mconfig, int value) {
+const char *set_enablesetuidgid(cmd_parms *cmd, void *mconfig, int value) {
     nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
     const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
     
@@ -210,6 +210,73 @@ static const char *set_enablesetuidgid(cmd_parms *cmd, void *mconfig, int value)
     return NULL;
 }
 
-static int is_chroot_used() {
+/*
+ * Configuration option.
+ * NsJailEnableUtsNamespace <On|Off>
+ * Enable or disable UTS namespaces.
+ */
+const char *set_enableutsnamespace(cmd_parms *cmd, void *mconfig, int value) {
+    nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES|NOT_IN_LIMIT);
+    if ( err != NULL ) {
+        return err;
+    }
+
+    dconf->enable_utsnamespace = value;
+    return NULL;
+}
+
+/*
+ * Configuration option.
+ * NsJailUtsHostname <hostname>
+ * hostname: Hostname to set within UTS namespace.
+ */
+const char *set_utshostname(cmd_parms *cmd, void *mconfig, const char *host_name) {
+    nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+    if (err != NULL)
+    {
+        return err;
+    }
+
+    dconf->uts_hostname = host_name;
+    return NULL;
+}
+
+/*
+ * Configuration option.
+ * NsJailUtsDomainName <domain name>
+ * domain name: Domain name to set within UTS namespace.
+ */
+const char *set_utsdomainname(cmd_parms *cmd, void *mconfig, const char *domain_name) {
+    nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+    if (err != NULL)
+    {
+        return err;
+    }
+
+    dconf->uts_domainname = domain_name;
+    return NULL;
+}
+
+/*
+ * Configuration option.
+ * NsJailUtsCachePath <path>
+ * Path to bind UTS namespace filehandle to.
+ */
+const char *set_utscachepath(cmd_parms *cmd, void *mconfig, const char *cache_path) {
+    nsjail_dir_config_t *dconf = (nsjail_dir_config_t *)mconfig;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+    if (err != NULL)
+    {
+        return err;
+    }
+
+    dconf->uts_cachepath = cache_path;
+    return NULL;
+}
+
+int is_chroot_used() {
     return chroot_used;
 }

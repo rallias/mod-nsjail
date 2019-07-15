@@ -31,6 +31,10 @@ typedef struct
     gid_t nsjail_gid;
     gid_t groups[NSJAIL_MAXGROUPS];
     int groupsnr;
+    int enable_utsnamespace;
+    const char *uts_hostname;
+    const char *uts_domainname;
+    const char *uts_cachepath;
 } nsjail_dir_config_t;
 
 typedef struct
@@ -43,15 +47,19 @@ typedef struct
     const char *document_root;
 } nsjail_config_t;
 
-static void *create_dir_config(apr_pool_t*, char*);
-static void *merge_dir_config(apr_pool_t*, void*, void*);
-static void *create_config(apr_pool_t*, server_rec*);
-static const char *set_enablesetuidgid(cmd_parms*, void*, int);
-static const char *set_uidgid(cmd_parms*, void*, const char*, const char*);
-static const char *set_groups(cmd_parms*, void*, const char*);
-static const char *set_defuidgid(cmd_parms*, void*, const char*, const char*);
-static const char *set_minuidgid(cmd_parms*, void*, const char*, const char*);
-static const char *set_documentchroot(cmd_parms*, void*, const char*, const char*);
+extern void *create_dir_config(apr_pool_t*, char*);
+extern void *merge_dir_config(apr_pool_t*, void*, void*);
+extern void *create_config(apr_pool_t*, server_rec*);
+extern const char *set_enablesetuidgid(cmd_parms*, void*, int);
+extern const char *set_uidgid(cmd_parms*, void*, const char*, const char*);
+extern const char *set_groups(cmd_parms*, void*, const char*);
+extern const char *set_defuidgid(cmd_parms*, void*, const char*, const char*);
+extern const char *set_minuidgid(cmd_parms*, void*, const char*, const char*);
+extern const char *set_documentchroot(cmd_parms*, void*, const char*, const char*);
+extern const char *set_enableutsnamespace(cmd_parms *, void *, int);
+extern const char *set_utshostname(cmd_parms *, void *, const char *);
+extern const char *set_utsdomainname(cmd_parms *, void *, const char *);
+extern const char *set_utscachepath(cmd_parms *, void *, const char *);
 
-static int is_chroot_used();
+extern int is_chroot_used();
 #endif
